@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Navigation from './components/Navigation';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
@@ -7,17 +7,94 @@ import BrowseTutorsPage from './pages/BrowseTutorsPage';
 import BookingPage from './pages/BookingPage';
 import StudentDashboard from './pages/StudentDashboard';
 import TutorDashboard from './pages/TutorDashboard';
-import { sampleTutors } from './data/sampleData';
+import { tutorAPI, bookingAPI } from './utils/api';
+import { removeAuthToken } from './utils/api';
 
 function App() {
   // Core state management
   const [currentUser, setCurrentUser] = useState(null);
   const [view, setView] = useState('home');
-  const [tutors, setTutors] = useState(sampleTutors);
+  const [tutors, setTutors] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [selectedTutor, setSelectedTutor] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('all');
+  const [loading, setLoading] = useState(false);
+
+  // Load tutors from backend
+  useEffect(() => {
+    const loadTutors = async () => {
+      try {
+        setLoading(true);
+        const response = await tutorAPI.getAll();
+        if (response.success && response.data) {
+          // Transform backend data to match frontend format
+          const transformedTutors = response.data.map((tutor) => {
+            // Handle nested user data structure
+            const userData = tutor.users || (Array.isArray(tutor.users) ? tutor.users[0] : null);
+            
+            return {
+              id: tutor.id, // This is the tutor_profile.id (UUID)
+              userId: tutor.user_id, // Store user_id separately if needed
+              name: userData?.full_name || 'Tutor',
+              email: userData?.email || '',
+              languages: tutor.languages || [],
+              rating: parseFloat(tutor.avg_rating) || 0,
+              reviews: tutor.total_reviews || 0,
+              hourlyRate: tutor.hourly_rate || 500,
+              experience: `${tutor.experience_years || 0} years`,
+              bio: tutor.bio || '',
+              avatar: '👨‍🏫',
+              availability: [],
+            };
+          });
+          setTutors(transformedTutors);
+        }
+      } catch (error) {
+        console.error('Failed to load tutors:', error);
+        // Keep empty array on error - will show "No tutors found"
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (view === 'browse' || view === 'home') {
+      loadTutors();
+    }
+  }, [view]);
+
+  // Load bookings when user is logged in
+  useEffect(() => {
+    const loadBookings = async () => {
+      if (!currentUser) return;
+
+      try {
+        const response = await bookingAPI.getAll();
+        if (response.success) {
+          // Transform backend bookings to match frontend format
+          const transformedBookings = response.data.map((booking) => ({
+            id: booking.id,
+            tutorId: booking.tutor_id,
+            tutorName: booking.tutor?.full_name || 'Tutor',
+            studentEmail: booking.student?.email || currentUser.email,
+            studentName: booking.student?.full_name || currentUser.name,
+            date: booking.session_date,
+            time: booking.start_time,
+            duration: booking.duration_minutes,
+            amount: parseFloat(booking.total_amount) || 0,
+            status: booking.status,
+          }));
+          setBookings(transformedBookings);
+        }
+      } catch (error) {
+        console.error('Failed to load bookings:', error);
+      }
+    };
+
+    if (currentUser && (view === 'student-dashboard' || view === 'tutor-dashboard')) {
+      loadBookings();
+    }
+  }, [currentUser, view]);
 
   // Navigation handler
   const navigateTo = (newView) => {
@@ -37,7 +114,9 @@ function App() {
 
   // Logout handler
   const handleLogout = () => {
+    removeAuthToken();
     setCurrentUser(null);
+    setBookings([]);
     navigateTo('home');
   };
 
@@ -77,21 +156,46 @@ function App() {
   };
 
   // Booking handler
-  const handleBooking = (bookingData) => {
-    const newBooking = {
-      id: Date.now(),
-      tutorId: selectedTutor.id,
-      tutorName: selectedTutor.name,
-      studentEmail: currentUser.email,
-      studentName: currentUser.name,
-      date: bookingData.date,
-      time: bookingData.time,
-      duration: bookingData.duration,
-      amount: bookingData.amount,
-      status: 'confirmed',
-    };
-    setBookings([...bookings, newBooking]);
-    navigateTo('student-dashboard');
+  const handleBooking = async (bookingData) => {
+    if (!selectedTutor) return;
+
+    try {
+      setLoading(true);
+      // Use the tutor ID directly (it's the tutor profile ID from backend)
+      const response = await bookingAPI.create({
+        tutorId: selectedTutor.id,
+        date: bookingData.date,
+        time: bookingData.time,
+        duration: bookingData.duration,
+        notes: bookingData.notes,
+      });
+
+      if (response.success) {
+        // Reload bookings to get the new one
+        const bookingsResponse = await bookingAPI.getAll();
+        if (bookingsResponse.success) {
+          const transformedBookings = bookingsResponse.data.map((booking) => ({
+            id: booking.id,
+            tutorId: booking.tutor_id,
+            tutorName: booking.tutor?.full_name || 'Tutor',
+            studentEmail: booking.student?.email || currentUser.email,
+            studentName: booking.student?.full_name || currentUser.name,
+            date: booking.session_date,
+            time: booking.start_time,
+            duration: booking.duration_minutes,
+            amount: parseFloat(booking.total_amount) || 0,
+            status: booking.status,
+          }));
+          setBookings(transformedBookings);
+        }
+        alert('Booking created! Please complete payment.');
+        navigateTo('student-dashboard');
+      }
+    } catch (error) {
+      alert(error.message || 'Failed to create booking. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Render current view
@@ -114,6 +218,7 @@ function App() {
             selectedLanguage={selectedLanguage}
             setSelectedLanguage={setSelectedLanguage}
             setSelectedTutor={setSelectedTutor}
+            loading={loading}
           />
         );
       case 'booking':

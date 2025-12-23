@@ -48,7 +48,7 @@ const BookingPage = ({ navigateTo, tutor, currentUser, onBooking }) => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (validateForm()) {
       const bookingData = {
@@ -56,9 +56,9 @@ const BookingPage = ({ navigateTo, tutor, currentUser, onBooking }) => {
         time: formData.time,
         duration: parseInt(formData.duration),
         amount: calculateTotal(),
+        notes: '',
       };
-      onBooking(bookingData);
-      alert('Booking confirmed!');
+      await onBooking(bookingData);
     }
   };
 

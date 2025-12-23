@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { indianLanguages } from '../data/sampleData';
+import { authAPI, tutorAPI } from '../utils/api';
 
 const RegisterPage = ({ navigateTo, onRegister }) => {
   const [userType, setUserType] = useState('student');
@@ -15,6 +16,8 @@ const RegisterPage = ({ navigateTo, onRegister }) => {
     availability: [],
   });
   const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [apiError, setApiError] = useState('');
 
   const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -44,24 +47,54 @@ const RegisterPage = ({ navigateTo, onRegister }) => {
   const validateForm = () => {
     const newErrors = {};
 
+    // Name validation
     if (!formData.name.trim()) {
       newErrors.name = 'Name is required';
+    } else if (formData.name.trim().length < 2) {
+      newErrors.name = 'Name must be at least 2 characters';
+    } else if (formData.name.trim().length > 100) {
+      newErrors.name = 'Name must be less than 100 characters';
     }
+    
+    // Email validation
     if (!formData.email.trim()) {
       newErrors.email = 'Email is required';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       newErrors.email = 'Invalid email format';
     }
+    
+    // Password validation (matches backend requirements)
     if (!formData.password.trim()) {
       newErrors.password = 'Password is required';
+    } else {
+      const password = formData.password;
+      if (password.length < 8) {
+        newErrors.password = 'Password must be at least 8 characters';
+      } else if (!/[A-Z]/.test(password)) {
+        newErrors.password = 'Password must contain at least one uppercase letter';
+      } else if (!/[a-z]/.test(password)) {
+        newErrors.password = 'Password must contain at least one lowercase letter';
+      } else if (!/[0-9]/.test(password)) {
+        newErrors.password = 'Password must contain at least one number';
+      } else if (!/[^A-Za-z0-9]/.test(password)) {
+        newErrors.password = 'Password must contain at least one special character (!@#$%^&* etc.)';
+      }
     }
 
+    // Tutor-specific validation
     if (userType === 'tutor') {
       if (formData.languages.length === 0) {
         newErrors.languages = 'Select at least one language';
       }
       if (!formData.hourlyRate) {
         newErrors.hourlyRate = 'Hourly rate is required';
+      } else {
+        const rate = parseInt(formData.hourlyRate);
+        if (rate < 100) {
+          newErrors.hourlyRate = 'Minimum rate is ₹100';
+        } else if (rate > 5000) {
+          newErrors.hourlyRate = 'Maximum rate is ₹5000';
+        }
       }
     }
 
@@ -69,14 +102,79 @@ const RegisterPage = ({ navigateTo, onRegister }) => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (validateForm()) {
-      onRegister({
-        ...formData,
-        userType,
-        hourlyRate: userType === 'tutor' ? parseInt(formData.hourlyRate) : null,
+    setApiError('');
+    
+    if (!validateForm()) return;
+
+    setLoading(true);
+    try {
+      // Register user
+      const registerResponse = await authAPI.register({
+        email: formData.email,
+        password: formData.password,
+        name: formData.name.trim(), // Trim whitespace
+        userType: userType,
       });
+
+      if (registerResponse.success) {
+        // Auto-login after registration
+        const loginResponse = await authAPI.login(formData.email, formData.password);
+        
+        if (loginResponse.success) {
+          const user = {
+            id: loginResponse.data.user.id,
+            email: loginResponse.data.user.email,
+            name: formData.name,
+            userType: userType,
+          };
+
+          // If tutor, create tutor profile
+          if (userType === 'tutor') {
+            try {
+              await tutorAPI.createProfile({
+                languages: formData.languages,
+                hourlyRate: parseInt(formData.hourlyRate),
+                experience: formData.experience,
+                bio: formData.bio || 'No bio provided.',
+              });
+            } catch (profileError) {
+              console.error('Tutor profile creation error:', profileError);
+              // Continue even if profile creation fails - user can create it later
+            }
+          }
+
+          onRegister(user);
+        }
+      }
+    } catch (error) {
+      // Handle validation errors with better messages
+      let errorMessage = 'Registration failed. Please try again.';
+      
+      if (error.message) {
+        // Check for specific validation errors
+        if (error.message.includes('Password must')) {
+          errorMessage = error.message;
+        } else if (error.message.includes('Name must')) {
+          errorMessage = error.message;
+        } else if (error.message.includes('Invalid email')) {
+          errorMessage = error.message;
+        } else if (error.message.includes('already exists') || error.message.includes('already registered')) {
+          errorMessage = 'An account with this email already exists. Please login instead.';
+        } else if (error.message.includes('Too many')) {
+          errorMessage = 'Too many registration attempts. Please wait a few minutes and try again.';
+        } else if (error.message.includes('Validation Error') || error.message.includes('invalid input')) {
+          // Parse validation details if available
+          errorMessage = error.message;
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      setApiError(errorMessage);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -279,11 +377,18 @@ const RegisterPage = ({ navigateTo, onRegister }) => {
               </>
             )}
 
+            {apiError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                {apiError}
+              </div>
+            )}
+
             <button
               type="submit"
-              className="w-full bg-primary text-white py-4 rounded-lg font-semibold text-lg hover:bg-primary-light transition-colors shadow-lg"
+              disabled={loading}
+              className="w-full bg-primary text-white py-4 rounded-lg font-semibold text-lg hover:bg-primary-light transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Create Account
+              {loading ? 'Creating Account...' : 'Create Account'}
             </button>
           </form>
 

@@ -11,6 +11,7 @@ const BrowseTutorsPage = ({
   selectedLanguage,
   setSelectedLanguage,
   setSelectedTutor,
+  loading,
 }) => {
   // Filter tutors based on search term and language
   const filteredTutors = useMemo(() => {
@@ -81,12 +82,20 @@ const BrowseTutorsPage = ({
         </div>
 
         {/* Results Count */}
-        <p className="text-gray-600 mb-6">
-          Found {filteredTutors.length} tutor{filteredTutors.length !== 1 ? 's' : ''}
-        </p>
+        {loading ? (
+          <p className="text-gray-600 mb-6">Loading tutors...</p>
+        ) : (
+          <p className="text-gray-600 mb-6">
+            Found {filteredTutors.length} tutor{filteredTutors.length !== 1 ? 's' : ''}
+          </p>
+        )}
 
         {/* Tutor Grid */}
-        {filteredTutors.length === 0 ? (
+        {loading ? (
+          <div className="text-center py-12">
+            <p className="text-xl text-gray-600">Loading tutors...</p>
+          </div>
+        ) : filteredTutors.length === 0 ? (
           <div className="text-center py-12 bg-white rounded-xl shadow-md">
             <p className="text-xl text-gray-600">No tutors found matching your criteria.</p>
             <button

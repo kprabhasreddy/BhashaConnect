@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
+import { authAPI } from '../utils/api';
 
 const LoginPage = ({ navigateTo, onLogin }) => {
   const [userType, setUserType] = useState('student');
@@ -8,6 +9,8 @@ const LoginPage = ({ navigateTo, onLogin }) => {
     password: '',
   });
   const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [apiError, setApiError] = useState('');
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -15,6 +18,7 @@ const LoginPage = ({ navigateTo, onLogin }) => {
     if (errors[name]) {
       setErrors({ ...errors, [name]: '' });
     }
+    if (apiError) setApiError('');
   };
 
   const validateForm = () => {
@@ -33,17 +37,44 @@ const LoginPage = ({ navigateTo, onLogin }) => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (validateForm()) {
-      // Mock authentication - accept any credentials
-      // In a real app, this would call an API
-      const mockUser = {
-        email: formData.email,
-        name: formData.email.split('@')[0], // Use email prefix as name
-        userType: userType,
-      };
-      onLogin(mockUser);
+    setApiError('');
+    
+    if (!validateForm()) return;
+
+    setLoading(true);
+    try {
+      const response = await authAPI.login(formData.email, formData.password);
+      
+      if (response.success) {
+        const user = {
+          id: response.data.user.id,
+          email: response.data.user.email,
+          name: response.data.user.full_name || formData.email.split('@')[0],
+          userType: response.data.user.user_type || userType,
+        };
+        onLogin(user);
+      }
+    } catch (error) {
+      // Handle different error types
+      let errorMessage = 'Login failed. Please check your credentials.';
+      
+      if (error.message) {
+        if (error.message.includes('Too many')) {
+          errorMessage = 'Too many login attempts. Please wait a few minutes and try again.';
+        } else if (error.message.includes('Email Not Verified')) {
+          errorMessage = 'Please verify your email address before logging in. Check your inbox.';
+        } else if (error.message.includes('Invalid email or password')) {
+          errorMessage = 'Invalid email or password. Please try again.';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      setApiError(errorMessage);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -126,11 +157,18 @@ const LoginPage = ({ navigateTo, onLogin }) => {
               )}
             </div>
 
+            {apiError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                {apiError}
+              </div>
+            )}
+
             <button
               type="submit"
-              className="w-full bg-primary text-white py-4 rounded-lg font-semibold text-lg hover:bg-primary-light transition-colors shadow-lg"
+              disabled={loading}
+              className="w-full bg-primary text-white py-4 rounded-lg font-semibold text-lg hover:bg-primary-light transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Sign In
+              {loading ? 'Signing In...' : 'Sign In'}
             </button>
           </form>
 
